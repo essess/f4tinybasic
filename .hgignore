@@ -1,0 +1,6 @@
+syntax: glob
+*.hzs
+*.bak
+f4tinybasic THUMB Debug
+f4tinybasic THUMB Release
+*.sublime-*
