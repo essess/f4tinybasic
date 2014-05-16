@@ -2,14 +2,13 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h>  /* added 08 Oct 31 */
+#include <stdlib.h>
 #include <cross_studio_io.h>
-
-#define NeedsEcho          false
+#include <stdint.h>
+#include <stdbool.h>
 
 /* Constants: */
 
-#define aByte unsigned char
 #define CoreTop 65536 /* Core size */
 #define UserProg 32   /* Core address of front of Basic program */
 #define EndUser 34    /* Core address of end of stack/user space */
@@ -37,9 +36,6 @@
 #define CanCode 272   /* Core address of line cancel code */
 #define ILfront 286   /* Core address of IL code address */
 #define BadOp 15      /* illegal op, default IL code */
-  /* Pascal habits die hard.. */
-#define true 1
-#define false 0
 
 /* debugging stuff... */
 #define DEBUGON 1     /* 1 enables \t Debugging toggle, 0 disables */
@@ -50,8 +46,8 @@ int LogHere = 0;             /* current index in DebugLog */
 int Watcher = 0, Watchee;    /* memory watchpoint */
 
 /* Static/global data: */
-aByte Core[CoreTop];    /* everything goes in here */
-aByte DeCaps[128];      /* capitalization table */
+uint8_t Core[CoreTop];    /* everything goes in here */
+uint8_t DeCaps[128];      /* capitalization table */
 int Lino, ILPC;         /* current line #, IL program counter */
 int BP, SvPt;           /* current, saved TB parse pointer */
 int SubStk, ExpnTop;    /* stack pointers */
@@ -65,8 +61,8 @@ int Broken;             /* =true to stop execution or listing */
 /* store integer as two bytes */
 void Poke2(int loc, int valu)
 {
-  Core[loc] = (aByte)((valu>>8)&255);         /* nominally Big-Endian */
-  Core[loc+1] = (aByte)(valu&255);
+  Core[loc] = (uint8_t)((valu>>8)&255);         /* nominally Big-Endian */
+  Core[loc+1] = (uint8_t)(valu&255);
 }
 
 /* fetch integer from two bytes */
@@ -434,7 +430,7 @@ void PushExBy(int valu)
   if (ExpnTop<=InLend)
     TBerror();                    /* overflow: bumped into input line */
   else
-    Core[--ExpnTop] = (aByte)(valu&255);
+    Core[--ExpnTop] = (uint8_t)(valu&255);
   if (Debugging>0)
     ShowExSt();
 }
@@ -674,7 +670,7 @@ void Interp(void)
             }
             ix = (int)Core[ExpnTop];
             Core[ExpnTop] = Core[ExpnTop+op];
-            Core[ExpnTop+op] = (aByte)ix;
+            Core[ExpnTop+op] = (uint8_t)ix;
             if (Debugging>0)
               ShowExSt();
             break;
@@ -1077,10 +1073,11 @@ void Interp(void)
                 continue;
               if (InLend>ExpnTop-2)
                 continue;                      /* discard overrun chars */
-              Core[InLend++] = (aByte)ch;}/* insert this char in buffer */
+              Core[InLend++] = (uint8_t)ch; /* insert this char in buffer */
+            }
             while (InLend>InLine && Core[InLend-1] == ' ')
               InLend--;                /* delete excess trailing spaces */
-            Core[InLend++] = (aByte) '\r';/* insert final return & null */
+            Core[InLend++] = (uint8_t) '\r';/* insert final return & null */
             Core[InLend] = 0;
             BP = InLine;
             break;
@@ -1276,7 +1273,7 @@ void Interp(void)
                 break;
               case PokeSub:
                 ix = ix&0xFF;
-                Core[here] = (aByte)ix;
+                Core[here] = (uint8_t)ix;
                 PushExInt(ix);
                 if (DEBUGON>0)
                   LogIt(((ix+256)<<16)+here);
@@ -1506,7 +1503,7 @@ void ConvtIL(char const *txt)
   ILend = ILfront+2;
   Poke2(ILfront,ILend);    /* initialize pointers as promised in TBEK */
   Poke2(ColdGo+1,ILend);
-  Core[ILend] = (aByte)BadOp;   /* illegal op, in case nothing loaded */
+  Core[ILend] = (uint8_t)BadOp;   /* illegal op, in case nothing loaded */
   if (txt == NULL)
     return;
   while (*txt != '\0')                              /* get the data.. */
@@ -1524,7 +1521,7 @@ void ConvtIL(char const *txt)
       valu = DeHex(txt++, 2);                           /* get a byte */
       if (valu<0)
         break;                                /* no more on this line */
-      Core[ILend++] = (aByte)valu;      /* insert this byte into code */
+      Core[ILend++] = (uint8_t)valu;      /* insert this byte into code */
       txt++;
     }
   }
