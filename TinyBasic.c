@@ -5,33 +5,7 @@
 #include <stdlib.h>  /* added 08 Oct 31 */
 #include <cross_studio_io.h>
 
-/* Default input/output file names, if defined (omit otherwise)... */
-//#define DefaultInputFile "TBasm.txt"
-//#define DefaultOutputFile "TBout.txt"
-
-/* File input/output function macros (adjust for C++ framework) */
-#define FileType           FILE*
-#define IoFileClose(fi)    debug_fclose(fi)
-#define InFileChar(fi)     CfileRead(fi)
-#define OutFileChar(fi,ch) debug_fputc(ch,fi)
-#define ScreenChar(ch)     debug_putchar(ch)
-#define KeyInChar          (char)debug_getchar()
 #define NeedsEcho          false
-#define BreakTest          Broken
-
-/* File input/output function macros (Qt examples:) */
-/* #define FileType           QFile* */
-/* #define IoFileClose(fi)    fi->close() */
-/* #define InFileChar(fi)     (fi->atEnd()?'\0':fi->getch()) */
-/* #define OutFileChar(fi,ch) fi->putch(ch) */
-
-/* C file reader, returns '\0' on eof */
-char CfileRead(FileType fi)
-{
-  int chn = debug_fgetc(fi);
-  if (chn == EOF) return '\0';
-  return (char)chn;
-}
 
 /* Constants: */
 
@@ -84,9 +58,7 @@ int SubStk, ExpnTop;    /* stack pointers */
 int InLend, SrcEnd;     /* current input line & TB source end */
 int UserEnd;
 int ILend, XQhere;      /* end of IL code, start of execute loop */
-int Broken = false;     /* =true to stop execution or listing */
-FileType inFile = NULL; /* from option '-i' or user menu/button */
-FileType oFile = NULL;  /* from option '-o' or user menu/button */
+int Broken;             /* =true to stop execution or listing */
 
 /************************* Memory Utilities.. *************************/
 
@@ -107,64 +79,30 @@ int Peek2(int loc) {
 /* output char to stdout */
 void Ouch(char ch)
 {
-  if (oFile != NULL)                     /* there is an output file.. */
-  {
-    if (ch>=' ')
-      OutFileChar(oFile,ch);
-    else
-      if (ch == '\r')
-        OutFileChar(oFile,'\n');
-  }
   if (ch=='\r')
   {
     Core[TabHere] = 0;         /* keep count of how long this line is */
-    ScreenChar('\n');
+    debug_putchar('\n');
   }
   else
   if (ch>=' ')
     if (ch<='~')                    /* ignore non-print control chars */
     {
       Core[TabHere]++;
-      ScreenChar(ch);
+      debug_putchar(ch);
     }
 }
 
-/* read input character from stdin or file */
-char Inch(void) {
-  char ch;
-  if (inFile != NULL)          /* there is a file to get input from.. */
-  {
-    ch = InFileChar(inFile);
-    if (ch == '\n')
-      ch = '\r';
-    if (ch == '\0')            /* switch over to console input at eof */
-    {
-      IoFileClose(inFile);
-      inFile = NULL;
-    }
-    else
-    {
-      Ouch(ch);         /* echo input to screen (but not output file) */
-      return ch;
-    }
-  }
-  ch = KeyInChar;                             /* get input from stdin */
-  if (NeedsEcho)
-    ScreenChar(ch);                /* alternative input may need this */
-  if (oFile != NULL)
-    OutFileChar(oFile,ch);                  /* echo it to output file */
+/* read input character from stdin */
+char Inch(void)
+{
+  char ch = debug_getchar();
   if (ch == '\n')
   {
     ch = '\r';                     /* convert line end to TB standard */
     Core[TabHere] = 0;                           /* reset tab counter */
   }
   return ch;
-}
-
-/* not implemented */
-int StopIt(void)
-{
-  return BreakTest;
 }
 
 /* output a string to the console */
@@ -630,7 +568,7 @@ void ListIt(int frm, int too)
   if (too==0)
     too = frm;
   here = FindLine(frm);                   /* try to find first line.. */
-  while (!StopIt())
+  while (!Broken)
   {
     frm = Peek2(here++);             /* get this line's # to print it */
     if (frm>too || frm==0) break;
@@ -644,39 +582,6 @@ void ListIt(int frm, int too)
     }
     while (ch>'\r');
   }
-}
-
-/* convert & load TBIL code */
-void ConvtIL(char const *txt)
-{
-  int valu;
-  ILend = ILfront+2;
-  Poke2(ILfront,ILend);    /* initialize pointers as promised in TBEK */
-  Poke2(ColdGo+1,ILend);
-  Core[ILend] = (aByte)BadOp;   /* illegal op, in case nothing loaded */
-  if (txt == NULL)
-    return;
-  while (*txt != '\0')                              /* get the data.. */
-  {
-    while (*txt > '\r')
-      txt++;                                 /* (no code on 1st line) */
-    if (*txt++ == '\0')
-      break;                                        /* no code at all */
-    while (*txt > ' ')
-      txt++;                                     /* skip over address */
-    if (*txt++ == '\0')
-      break;
-    while (true)
-    {
-      valu = DeHex(txt++, 2);                           /* get a byte */
-      if (valu<0)
-        break;                                /* no more on this line */
-      Core[ILend++] = (aByte)valu;      /* insert this byte into code */
-      txt++;
-    }
-  }
-  XQhere = 0;                        /* requires new XQ to initialize */
-  Core[ILend] = 0;
 }
 
 /* swap SvPt/BP if here is not in InLine  */
@@ -701,7 +606,7 @@ void Interp(void)
   Broken = false;          /* initialize this for possible later test */
   while (true)
   {
-    if (StopIt())
+    if (Broken)
     {
       Broken = false;
       OutLn();
@@ -1361,7 +1266,7 @@ void Interp(void)
                 PushExInt(0);
                 break;
               case BreakSub:
-                PushExInt(StopIt());
+                PushExInt(Broken);
                 break;
               case PeekSub:
                 PushExInt((int)Core[here]);
@@ -1593,6 +1498,39 @@ void Interp(void)
 }
 
 /***************** Intermediate Interpreter Assembled *****************/
+
+/* convert & load TBIL code */
+void ConvtIL(char const *txt)
+{
+  int valu;
+  ILend = ILfront+2;
+  Poke2(ILfront,ILend);    /* initialize pointers as promised in TBEK */
+  Poke2(ColdGo+1,ILend);
+  Core[ILend] = (aByte)BadOp;   /* illegal op, in case nothing loaded */
+  if (txt == NULL)
+    return;
+  while (*txt != '\0')                              /* get the data.. */
+  {
+    while (*txt > '\r')
+      txt++;                                 /* (no code on 1st line) */
+    if (*txt++ == '\0')
+      break;                                        /* no code at all */
+    while (*txt > ' ')
+      txt++;                                     /* skip over address */
+    if (*txt++ == '\0')
+      break;
+    while (true)
+    {
+      valu = DeHex(txt++, 2);                           /* get a byte */
+      if (valu<0)
+        break;                                /* no more on this line */
+      Core[ILend++] = (aByte)valu;      /* insert this byte into code */
+      txt++;
+    }
+  }
+  XQhere = 0;                        /* requires new XQ to initialize */
+  Core[ILend] = 0;
+}
 
 char const *DefaultIL( void )
 {
@@ -1859,7 +1797,7 @@ char const *DefaultIL( void )
 
 /**************************** Startup Code ****************************/
 
-void StartTinyBasic(char const *ILtext)
+int main(int argc, char* argv[])
 {
   int nx;
   for (nx=0; nx<CoreTop; nx++)
@@ -1877,66 +1815,8 @@ void StartTinyBasic(char const *ILtext)
   DeCaps[10] = '\r';
   DeCaps[13] = '\r';
   DeCaps[127] = '\0';
-  if (!ILtext)
-    ILtext = DefaultIL();                    /* no IL given, use mine */
-  ConvtIL(ILtext);              /* convert IL assembly code to binary */
+  ConvtIL(DefaultIL());         /* convert IL assembly code to binary */
   ColdStart();
   Interp();                                               /* go do it */
-  if (oFile != NULL) IoFileClose(oFile);         /* close output file */
-  if (inFile != NULL) IoFileClose(inFile);        /* close input file */
-  oFile = NULL;
-  inFile = NULL;
-}
-
-int main(int argc, char* argv[])
-{
-  int nx;
-  long int len;
-  char* IL = NULL;
-  FileType tmpFile;
-  inFile = NULL;
-  oFile = NULL;
-  for (nx=1; nx<argc; nx++)           /* look for command-line args.. */
-  {
-    if (strcmp(argv[nx],"-b")==0 && ++nx<argc)       /* alt IL file.. */
-    {
-      tmpFile = debug_fopen(argv[nx],"r");
-      if (tmpFile != NULL)
-        if (debug_fseek(tmpFile,0,SEEK_END)==0)
-        {
-          len = debug_ftell(tmpFile);              /* get file size.. */
-          if (debug_fseek(tmpFile,0,SEEK_SET)==0)
-            if (len>9)
-            {
-              len = len/8+len;        /* allow for line end expansion */
-              IL = (char*)malloc(len+1);
-              if (IL != NULL)
-                len = debug_fread(IL,1,len,tmpFile);
-              IL[len] = '\0';
-              IoFileClose(tmpFile);
-            }
-        }
-      else
-        debug_printf("Could not open file %s", argv[nx]);
-    }
-    else
-    if (strcmp(argv[nx],"-o")==0 && ++nx<argc)         /* output file */
-      oFile = debug_fopen(argv[nx],"w");
-    else
-    if (strcmp(argv[nx],"-i")==0 && ++nx<argc)          /* input file */
-      inFile = debug_fopen(argv[nx],"r");
-    else
-    if (inFile==NULL)       /* default (unadorned) is also input file */
-      inFile = debug_fopen(argv[nx],"r");        /* ignore other args */
-  }
-
-#ifdef DefaultInputFile
-  if (inFile==NULL) inFile = debug_fopen(DefaultInputFile,"r");
-#endif
-#ifdef DefaultOutputFile
-  if (oFile==NULL) oFile = debug_fopen(DefaultOutputFile,"w");
-#endif
-
-  StartTinyBasic(IL);                                     /* go do it */
   return 0;
 }
